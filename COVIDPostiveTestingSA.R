@@ -50,11 +50,75 @@ p3<-ggplot(sa_cov_dat, aes(x=date2, y=cumulative_tests,group=1))+geom_line(size 
 p1_3<-p1/p2/p3
 
 
-# crate a new process time column from date2
+#----------------- crate a new process time column from date2
 
 sa_cov_dat<-sa_cov_dat%>%mutate(time=cumsum(c(0,diff.Date(date2))))
+head(sa_cov_dat)
+
+fit1<- brm(bf(Dialy_cases|trials(Daily_tests) ~ s(time)),
+                data = sa_cov_dat, family = binomial(), cores = 4, seed = 17,
+                iter = 4000, warmup = 1000, thin = 10, refresh = 0,
+                control = list(adapt_delta = 0.99))
 
 
+#----------------- get the profile plot - liner predictor 
+len = 500
+x1_new <- seq(min(sa_cov_dat$time), max(sa_cov_dat$time), length.out = len)
+newdata<-data.frame(x1_new, rep(5, 100))
+names(newdata)<-c('time','Daily_tests')
+
+predictions <- brms::posterior_linpred(fit1, newdata = newdata, summary = FALSE)
+means <- apply(predictions, MARGIN = 2,mean)
+lower <- apply(predictions, MARGIN = 2,quantile, prob = 0.055)
+upper <- apply(predictions, MARGIN = 2,quantile, prob = 0.945)
+
+profile_plot<-data.frame(means) %>%
+  cbind(lower) %>%
+  cbind(upper) %>%
+  cbind(newdata) %>%
+  ggplot(.,aes(time, means)) + geom_line() + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.1)+theme_bw()
+
+# --------------- get the profile plot on the response scale 
+
+#---------------- get the first derivative 
+len = 500
+epsilon <- 1e-6
+x1_new <- seq(min(sa_cov_dat$time), max(sa_cov_dat$time), length.out = len)
+first<-data.frame(x1_new, rep(1, len))
+names(first)<-c('time','Daily_tests')
+
+second <- first %>%
+  mutate(time = time + epsilon)
+
+## get predictions
+first_preds <-
+  posterior_linpred(fit1,
+                    newdata = first,
+                    summary = FALSE,)
+second_preds <-
+  posterior_linpred(fit1,
+                    newdata = second,
+                    summary = FALSE)
 
 
+## Calcualte the differennce and divide by epsilon - this is analgous to the dx/dt 
+diff <- (second_preds - first_preds) / epsilon
 
+
+## using the posterior samples, we calculate the mean and lower and upper quantiles
+mean_finite_diff  <- apply(diff, MARGIN = 2, FUN = mean)
+lower_finite_diff <- apply(diff, MARGIN = 2, FUN = quantile,prob = 0.025)
+upper_finite_diff <- apply(diff, MARGIN = 2, FUN = quantile,prob = 0.975)
+
+derivative_plot<-data.frame(mean_finite_diff) %>%
+  cbind(lower_finite_diff) %>%
+  cbind(upper_finite_diff) %>%
+  cbind(first) %>%
+  ggplot(.,aes(time, mean_finite_diff)) + geom_line()  +
+  geom_ribbon(aes(ymin = lower_finite_diff, ymax = upper_finite_diff), alpha = 0.1) + 
+  labs(y = "First Derivative", title = "Estimated First Derivatives")+theme_bw()
+
+postive_rate_plot<-ggplot(sa_cov_dat, aes(x=date2, y=total/Daily_tests,group=1))+geom_point()+xlab("Date")+ylab("Postive test")+theme_bw()
+
+postive_rate_plot/profile_plot/derivative_plot
