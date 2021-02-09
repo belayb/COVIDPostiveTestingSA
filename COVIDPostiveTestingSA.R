@@ -50,7 +50,6 @@ p3<-ggplot(sa_cov_dat, aes(x=date2, y=cumulative_tests,group=1))+geom_line(size 
 p1_3<-p1/p2/p3
 
 
-# Modeling Daily Cases - Negaive Binomial - AR1 and RW1 model - INLA
 # crate a new process time column from date2
 
 sa_cov_dat<-sa_cov_dat%>%mutate(time=cumsum(c(0,diff.Date(date2))))
