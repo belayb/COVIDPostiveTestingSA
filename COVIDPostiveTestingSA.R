@@ -121,4 +121,7 @@ derivative_plot<-data.frame(mean_finite_diff) %>%
 
 postive_rate_plot<-ggplot(sa_cov_dat, aes(x=date2, y=total/Daily_tests,group=1))+geom_point()+xlab("Date")+ylab("Postive test")+theme_bw()
 
-postive_rate_plot/profile_plot/derivative_plot
+postive_rate_plot/profile_plot/derivative_plot# work on getting dates right 
+
+
+# Use another model for the trend - random walk for example 
