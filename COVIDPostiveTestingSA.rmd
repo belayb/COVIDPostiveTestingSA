@@ -1,25 +1,50 @@
-#' This script loads data from git.hub -- repo 
-#' We want to model the postive testing rate 
-#' We will use a binomial model or beta-binomial model 
-#' to capture the trend we will use smoothing or ar1 or rw1 model
-#' Model fitting will be based on stan  
+---
+title: "COVIDPostiveTestingSA"
+author: "Belay Birlie Yimer, ..., Ziv Shkedy"
+date: "02/03/2021"
+output: pdf_document
+---
 
-#'---------------Load packages 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+to be updated 
+
+# Methods
+
+## Data
+We downloaded data from Coronavirus COVID-19 (2019-nCoV) Data Repository for South Africa maintained by Data Science for Social Impact research group at the University of Pretoria [ref]. The data repository captures the daily number of new cases, number of tests, number of deaths and recoveries. Our primary outcome of interest was the daily number of newly diagnosed COVID-19 cases and the unit of time used in modelling was a day. We used the daily case reports from March 12, 2020, until February 27, 2021, in our analysis.
+
+## Statistical analysis 
+
+# Results 
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r message = FALSE, warning = FALSE}
 library(ggplot2)
 library(visreg)
-library(brms)
 #'library(visibly)
 library(tidyverse)
 library(gridExtra)
 library(ggpubr)
 library(patchwork)
 library(lubridate)
+library(kableExtra)
+library(data.table)
+library(sfsmisc)
+library(brms)
+```
 
+```{r message = FALSE, warning = FALSE}
 #'------------- Load data 
 tests_sa <- read.csv("https://raw.githubusercontent.com/dsfsi/covid19za/master/data/covid19za_timeline_testing.csv",header=TRUE)
 cases_sa <- read.csv("https://raw.githubusercontent.com/dsfsi/covid19za/master/data/covid19za_provincial_cumulative_timeline_confirmed.csv",header=TRUE)
-head(tests_sa)
-head(cases_sa)
 #'------------- Prepare the two data sets to merge  
 tests_sa<-tests_sa%>%mutate(date2=lubridate::ymd(YYYYMMDD))
 cases_sa<-cases_sa%>%mutate(date2=lubridate::ymd(YYYYMMDD))
@@ -28,38 +53,70 @@ variable_keep_test<-c("date2","cumulative_tests")
 variable_keep_cases<-c("date2","total")
 
 sa_cov_dat<-left_join(cases_sa[,variable_keep_cases], tests_sa[,variable_keep_test], by="date2")
-head(sa_cov_dat)
-dim(sa_cov_dat[is.na(sa_cov_dat$cumulative_tests),])# There are unknown number of tests in the first 4 days 05,08,09,10-03-2020 
 # sa_cov_dat[18:35,] also unknown number of tests on 25-03, and 07-04 
 sa_cov_dat<-sa_cov_dat[sa_cov_dat$date2>'2020-03-09'&!is.na(sa_cov_dat$cumulative_tests),]
+sa_cov_dat<-sa_cov_dat[sa_cov_dat$date2<'2021-02-28',]#temp
 
 
 # You need to start from 2020-03-12 in order to properly calaculate daily cases and tests
 # Compute daily cases and tests 
 sa_cov_dat<-sa_cov_dat%>%mutate(Dialy_cases=-1*(lag(total)-total), Daily_tests=-1*(lag(cumulative_tests)-cumulative_tests))
 sa_cov_dat<-sa_cov_dat[-1, ]
-#Plot of observed data- cummulative cases, daily cases, cummulative tests 
+
+
+```
+Figure 1 presents the daily number of reported COVID-19 cases from 12 March 2020 to 27 February 2021.  Similar to elsewhere in the world,  South Africa pass through a two-wave pandemic. The pandemic's first peak was on 07 July 2020, where up to 13944 new COVID-19 cases reported, followed by a second peak in January 2021, where more than 21,000 daily cases reported. 
+Figure 2 presents the cumulative number of new reported COVID-19 cases and tests performed. To date, 8,838,937 tests have been conducted, and a total of 1,500,677 cases reported.
+
+
+
+```{r daily-cases,out.width = "99%",fig.cap = "Daily number of COVID-19 cases in South Africa from 12/03/2020-27/02/2021."}
 
 p1<-ggplot(sa_cov_dat, aes(x=date2, y=Dialy_cases,group=1))+geom_point()+xlab("Date")+ylab("Daily cases")+theme_bw()
+p1
 
-p2<-ggplot(sa_cov_dat, aes(x=date2, y=total,group=1))+geom_line(size = 1.5)+xlab("Date")+ylab("Cummulative cases")+theme_bw()
+```
+
+```{r cummulative,out.width = "99%",fig.cap = "The cummulative number of COVID-19 cases and Cummulative number of tests in South Africa from 12/03/2020-27/02/2021. Red-line denote the number of cases and blue-line denotes the number of tests."}
+
+dataa<-gather(sa_cov_dat[,c("date2", "total", "cumulative_tests")], Outcome, count, total:cumulative_tests, factor_key=TRUE)
+dataa<-dataa %>% 
+  mutate(Type = case_when(
+    Outcome=="cumulative_tests" ~ 'Tests',
+    TRUE ~ 'Cases') )
+
+p2<-ggplot(dataa,aes(x=date2, y=count,group=Type))+
+  geom_line(aes(color=Type))+
+  xlab("Date")+ylab("Cumulative count")+
+theme_bw()+theme(legend.position="none")
+
+p2
+#p2<-ggplot(sa_cov_dat, aes(x=date2, y=total,group=1))+geom_line(size = 1.5)+xlab("Date")+ylab("Cummulative cases")+theme_bw()
 
 
-p3<-ggplot(sa_cov_dat, aes(x=date2, y=cumulative_tests,group=1))+geom_line(size = 1.5)+xlab("Date")+ylab("Cummulative tests")+theme_bw()
+#p3<-ggplot(sa_cov_dat, aes(x=date2, y=cumulative_tests,group=1))+geom_line(size = 1.5)+xlab("Date")+ylab("Cummulative tests")+theme_bw()
 
-p1_3<-p1/p2/p3
+#p1_3<-p1/p2
+
+#p1_3
 
 
-#----------------- crate a new process time column from date2
+```
 
+
+```{r message = FALSE, warning = FALSE}
 sa_cov_dat<-sa_cov_dat%>%mutate(time=cumsum(c(0,diff.Date(date2))))
-head(sa_cov_dat)
 
 fit1<- brm(bf(Dialy_cases|trials(Daily_tests) ~ s(time)),
                 data = sa_cov_dat, family = binomial(), cores = 4, seed = 17,
                 iter = 4000, warmup = 1000, thin = 10, refresh = 0,
                 control = list(adapt_delta = 0.99))
 
+
+```
+
+
+```{r ,out.width = "99%",fig.cap = "Fitted and observed data AR1 model"}
 
 #----------------- get the profile plot - liner predictor 
 len = 500
@@ -122,6 +179,4 @@ derivative_plot<-data.frame(mean_finite_diff) %>%
 postive_rate_plot<-ggplot(sa_cov_dat, aes(x=date2, y= Dialy_cases/Daily_tests,group=1))+geom_point()+xlab("Date")+ylab("Postive test")+theme_classic()
 
 postive_rate_plot/profile_plot/derivative_plot# work on getting dates right 
-
-
-# Use another model for the trend - random walk for example 
+```
