@@ -49,7 +49,9 @@ p3<-ggplot(sa_cov_dat, aes(x=date2, y=cumulative_tests,group=1))+geom_line(size 
 
 p1_3<-p1/p2/p3
 
+p4<-ggplot(sa_cov_dat, aes(x=date2, y=Daily_tests,group=1))+geom_point()+xlab("Date")+ylab("Daily tests")+theme_bw()
 
+p1/p4
 #----------------- crate a new process time column from date2
 
 sa_cov_dat<-sa_cov_dat%>%mutate(time=cumsum(c(0,diff.Date(date2))))
@@ -125,3 +127,70 @@ postive_rate_plot/profile_plot/derivative_plot# work on getting dates right
 
 
 # Use another model for the trend - random walk for example 
+
+library(INLA)
+
+sa_cov_dat<-sa_cov_dat[sa_cov_dat$date2>'2020-03-09'&!is.na(sa_cov_dat$cumulative_tests),]
+sa_cov_dat<-sa_cov_dat[sa_cov_dat$date2<'2021-02-28',]#temp
+
+U <- 0.5#1
+
+hyper.prec <- list(theta = list(prior = "pc.prec", param = c(U, 0.75)))#0.01
+
+formula_rw2<-Dialy_cases ~1 + f(time, model = "rw2", scale.model = TRUE, 
+        hyper = hyper.prec)
+
+bin.rw2 <- inla(formula_rw2,                   
+               data = sa_cov_dat,
+               family = "betabinomial",
+               Ntrials=Daily_tests,
+               control.family=list(link='logit'),
+               control.predictor = list(compute = TRUE),
+               control.compute=list(cpo=TRUE,waic=TRUE,dic=TRUE))
+summary(bin.rw2)
+
+newdata_rw2<-cbind(sa_cov_dat[,c("date2","Dialy_cases","Daily_tests","time")],bin.rw2$summary.fitted.values)
+newdata_rw2 <- reshape:::rename(newdata_rw2, c("0.025quant"="lower", "0.975quant"="upper"))
+
+newdata_rw2<-newdata_rw2%>%
+  mutate(Postive_testing=Dialy_cases/Daily_tests,
+         mean_prop=mean/Daily_tests,
+         mean_L=lower/Daily_tests,
+         mean_U=upper/Daily_tests)
+
+p_rw2_inc<-ggplot(newdata_rw2, aes(y=mean, x=date2)) +
+  geom_blank()+
+  geom_point(aes(y=Dialy_cases, x=date2)) +
+  geom_ribbon(aes(ymin=lower, ymax=upper), fill='blue', alpha=0.6) +
+  geom_line(aes(y=mean, x=date2)) +xlab("Date")+ylab("Observed and fitted cases")+
+  labs(title = "A" )+
+  theme_bw()
+
+p_rw2_prop<-ggplot(newdata_rw2, aes(y=mean, x=date2)) +
+  geom_blank()+
+  geom_point(aes(y=I(Dialy_cases/Daily_tests), x=date2)) +
+  geom_ribbon(aes(ymin=lower, ymax=upper), fill='blue', alpha=0.6) +
+  geom_line(aes(y=mean, x=date2)) +xlab("Date")+ylab("Positive testing rate")+
+  geom_hline(yintercept = 0.05, linetype = "dashed", color="red",size=1)+
+  labs(title = "A")+
+  theme_bw()
+
+
+newdata_rw2$deriv<-D1ss(x=newdata_rw2$time,y=newdata_rw2$mean, spar.off=0.0)
+newdata_rw2$L_deriv<-D1ss(x=newdata_rw2$time,y=newdata_rw2$lower, spar.off=0.0)
+newdata_rw2$U_deriv<-D1ss(x=newdata_rw2$time,y=newdata_rw2$upper, spar.off=0.0)
+
+
+p_rw2_deriv_new<-ggplot(newdata_rw2, aes(y=deriv, x=date2)) +
+  geom_blank()+
+  geom_ribbon(aes(ymin=L_deriv, ymax=U_deriv), fill='blue', alpha=0.6) +
+  geom_line(aes(y=deriv, x=date2)) +xlab("Date")+ylab("Derivative")+
+  geom_hline(yintercept = 0, linetype = "dashed", color="red",size=1)+
+  geom_vline(xintercept = as.numeric(newdata_rw2$date2[310]), linetype = "twodash", color="pink4",size=1)+
+  geom_vline(xintercept = as.numeric(newdata_rw2$date2[230]), linetype = "twodash", color="pink4",size=1)+
+  geom_vline(xintercept = as.numeric(newdata_rw2$date2[153]), linetype = "twodash", color="pink4",size=1)+
+  labs(title = "B")+
+  theme_bw()
+
+ppnew<-p_rw2_prop/p_rw2_deriv_new
+ggsave("C:/Users/user/Dropbox (The University of Manchester)/Thesis_Belay/Fig_Fold/testingplot.png",ppnew)

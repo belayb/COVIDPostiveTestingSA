@@ -11,7 +11,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introduction
 
-to be updated 
+- Individuals rely on test results to guide their medical treatment and decisions on whether to self-isolate.
+- Public health officials rely on the results to track the state of the pandemic, and policymakers use this information to guide decisions on reopening schools and businesses.
+- One number—the “percent positive”—is often cited in these decisions.
+- The percent positive is the percentage of all coronavirus tests performed that are actually positive, or: (positive tests)/(total tests) x 100%.
+
+- The percent positive helps public health officials answer questions such as:
+    - What is the current level of SARS-CoV-2 (coronavirus) transmission in the community?
+    - Are we doing enough testing for the amount of people who are getting infected?
+
 
 # Methods
 
@@ -19,6 +27,26 @@ to be updated
 We downloaded data from Coronavirus COVID-19 (2019-nCoV) Data Repository for South Africa maintained by Data Science for Social Impact research group at the University of Pretoria [ref]. The data repository captures the daily number of new cases, number of tests, number of deaths and recoveries. Our primary outcome of interest was the daily number of newly diagnosed COVID-19 cases and the unit of time used in modelling was a day. We used the daily case reports from March 12, 2020, until February 27, 2021, in our analysis.
 
 ## Statistical analysis 
+We assume the number of postive cases to have a binomial distribution. Let $\pi_t$ denote the daily postive testing rate per test, $Y_t$ be the daily number of confirmed COVID-19 cases out of the $n_t$ indiviudals tested at day $t$. Our aim is to model the probability $\pi_t$ over time and produce a model-based estimate for it's first-order derivative. The model for the daily poitive testing rate is then given by 
+\[
+\begin{aligned}
+Y_t \sim& Binomial(n_t, \pi_t),\ \ t=1,...,T,\\
+logit(\pi_t)=&f(t).
+\end{aligned}
+\]
+
+The smooth function $f(t)$ is represtend by basis expansion of rank $K$. That is, 
+\[
+f(t)=\sum_{i=1}^{K}\beta_ib_i(t)
+\]
+where $b_i(t)$s are set of thin plate spline basis functions and $\beta_i$s are unknown coefficients of the basis functions. The spline model parameters can be estimated by considering the goodness-of-fit and the degree of smoothness. Writing all the basis coefficents in one parameter vector $\boldsymbol{\beta}$, 
+
+\[
+\begin{aligned}
+l(\beta)-\frac{\lambda}{2} \sum_{j=1}^M\beta^TS\beta\
+\end{aligned}
+\]
+where $S$ is metrices of known coefficents and $\lambda$ is the smoothing parameter to be estimated. 
 
 # Results 
 
@@ -29,6 +57,7 @@ knitr::opts_chunk$set(echo = FALSE)
 ```{r message = FALSE, warning = FALSE}
 library(ggplot2)
 library(visreg)
+library(cowplot)
 #'library(visibly)
 library(tidyverse)
 library(gridExtra)
@@ -107,39 +136,43 @@ p2
 ```{r message = FALSE, warning = FALSE}
 sa_cov_dat<-sa_cov_dat%>%mutate(time=cumsum(c(0,diff.Date(date2))))
 
-fit1<- brm(bf(Dialy_cases|trials(Daily_tests) ~ s(time)),
-                data = sa_cov_dat, family = binomial(), cores = 4, seed = 17,
-                iter = 4000, warmup = 1000, thin = 10, refresh = 0,
-                control = list(adapt_delta = 0.99))
-
+#fit1<- brm(bf(Dialy_cases|trials(Daily_tests) ~ s(time)),
+#                data = sa_cov_dat, family = binomial(), cores = 2, seed = 17,
+#                iter = 6000, warmup = 3000, thin = 10, refresh = 0,
+#                control = list(adapt_delta = 0.99))
+#saveRDS(fit1, file = "fit1.rds")
+fit1<-readRDS("fit1.rds")
 
 ```
 
 
-```{r ,out.width = "99%",fig.cap = "Fitted and observed data AR1 model"}
+```{r ,fig.height= 8,dpi = 300,fig.cap = "Upper Panel: Observed postive testing rate. Middle panel: The linear predictor of the smoother with 95% creadible interval. Lower panel: The derivative of the estimated probability of postive testing with the 95% creadible interval."}
 
 #----------------- get the profile plot - liner predictor 
-len = 500
+len = 345
 x1_new <- seq(min(sa_cov_dat$time), max(sa_cov_dat$time), length.out = len)
-newdata<-data.frame(x1_new, rep(5, 100))
+newdata<-data.frame(x1_new, rep(1, 345))
 names(newdata)<-c('time','Daily_tests')
 
 predictions <- brms::posterior_linpred(fit1, newdata = newdata, summary = FALSE)
 means <- apply(predictions, MARGIN = 2,mean)
 lower <- apply(predictions, MARGIN = 2,quantile, prob = 0.055)
 upper <- apply(predictions, MARGIN = 2,quantile, prob = 0.945)
-
+Date2<-sa_cov_dat$date2
+dim(sa_cov_dat)
 profile_plot<-data.frame(means) %>%
   cbind(lower) %>%
   cbind(upper) %>%
   cbind(newdata) %>%
-  ggplot(.,aes(time, means)) + geom_line() + 
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.1)+theme_bw()
+  cbind(Date2)%>%
+  ggplot(.,aes(Date2, means)) + geom_line() + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), color="blue", alpha = 0.1)+
+  ylab("Linear predictor")+xlab("Date")+theme_classic()
 
 # --------------- get the profile plot on the response scale 
 
 #---------------- get the first derivative 
-len = 500
+len = 345
 epsilon <- 1e-6
 x1_new <- seq(min(sa_cov_dat$time), max(sa_cov_dat$time), length.out = len)
 first<-data.frame(x1_new, rep(1, len))
@@ -172,11 +205,16 @@ derivative_plot<-data.frame(mean_finite_diff) %>%
   cbind(lower_finite_diff) %>%
   cbind(upper_finite_diff) %>%
   cbind(first) %>%
-  ggplot(.,aes(time, mean_finite_diff)) + geom_line()  +
-  geom_ribbon(aes(ymin = lower_finite_diff, ymax = upper_finite_diff), alpha = 0.1) + 
-  labs(y = "First Derivative", title = "Estimated First Derivatives")+theme_classic()
+  cbind(Date2) %>%
+  ggplot(.,aes(Date2, mean_finite_diff)) + geom_line()  +
+  geom_ribbon(aes(ymin = lower_finite_diff, ymax = upper_finite_diff), color="blue",alpha = 0.1) + 
+  labs(y = "Derivative")+xlab("Date")+
+  geom_hline(yintercept = 0, color="red", linetype="dashed") +theme_classic()
 
-postive_rate_plot<-ggplot(sa_cov_dat, aes(x=date2, y= Dialy_cases/Daily_tests,group=1))+geom_point()+xlab("Date")+ylab("Postive test")+theme_classic()
+postive_rate_plot<-ggplot(sa_cov_dat, aes(x=date2, y= Dialy_cases/Daily_tests,group=1))+geom_point(size = 0.1, stroke = 0, shape = 16)+xlab("Date")+ylab("Postive testing rate")+theme_classic()
 
-postive_rate_plot/profile_plot/derivative_plot# work on getting dates right 
+pp1<-postive_rate_plot/profile_plot/derivative_plot# work on getting dates right 
+
+ggsave("C:/Users/user/Dropbox (The University of Manchester)/covid_PhD/COVIDPostiveTestingSA/testingplot.png",pp1)
+pp1
 ```
